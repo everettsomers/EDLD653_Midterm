@@ -57,8 +57,10 @@ df2 <- df1 %>%
   group_by(district, academic_year, student_group, level) %>% 
   summarize(n = (sum(n)), n_schools = length(unique(school)), .groups = "drop") %>% 
   pivot_wider(names_from = student_group, values_from = n) %>% 
-  clean_names()
+  clean_names() %>% 
+  drop_na(white, hispanic_latino)
 ```
+### I received a error in part B1 that was fixed by dropping NAs from the white and hispanic_latino columns. 
 
 # Part B: Achievement Disparities
 ```{r}
@@ -69,22 +71,141 @@ library(gapr)
 ## 1. Estimate the average achievement differences in terms of an effect size for every school district in the state that reported data on both student groups (i.e., using the data we created above), for each academic year. Conduct this analysis twice, once using group_by() |> nest() and map() and once using nest_by() |> summarize().
 
 ```{r}
+b1a <- df2 %>% 
+  group_by(district, academic_year) %>% 
+  nest() %>% 
+  mutate(effect_size = map(data, ~estimate_v(.x, "white", "hispanic_latino"))) %>% 
+  unnest(effect_size) 
+
+head(b1a)
+
+b1b <- df2 %>% 
+  nest_by(district, academic_year) %>% 
+  summarize(effect_size = estimate_v(data, "white", "hispanic_latino")) %>% 
+  unnest(effect_size) 
+
+head(b1b)
 ```
 
 ## 2. Reproduce the following plot to confirm that the estimates are equivalent across methods.
 ```{r}
+b1a <- b1a %>% rename(v_map = v)
+b1b <- b1b %>% rename(v_summ = v)
+combined <- full_join(b1a, b1b, by = c("district", "academic_year"))
+ggplot(combined, aes (x=v_summ, y=v_map)) +
+  geom_point(size = 4, color = "gray70") +
+  geom_line(size = 2, color = "lightskyblue") +
+  theme_minimal()
 ```
 
 ## 3. The plot below shows the achievement difference estimates for one school district across years. Produce a similar plot to the below for each of the first 100 school districts. Once you’ve created all the plots, reproduce them again using an alternative method. Make sure you don’t miss the caption noting the number of schools in the district.
 
 ```{r}
-dists <- unique(v$district)[1:100]
+# "v" values were in a different object so I have to join them in order to have n_schools and v in the same dataframe. also grouping by and summarizing across levels since we don't use them here.
 
-model_list_object |> 
+b3data <- df2 %>% 
+  group_by(district, academic_year) %>% 
+  summarize(white = sum(white), hispanic_latino = sum(hispanic_latino), n_schools = mean(n_schools), .groups = "drop") %>% 
+  full_join(b1a) %>% 
+  select(-data) %>% 
+  rename(v = v_map)
+
+dists <- unique(b3data$district)[1:100]
+
+plot_data <- b3data %>% 
   filter(district %in% dists)
+
+# Method 1 : Row-wise/Nest-by
+
+plots <- plot_data %>% 
+  nest_by(district) %>% 
+  mutate(
+    plot = list(
+    ggplot(data, aes(x = academic_year, y = v)) +
+      geom_hline(yintercept = 0, color = "red", size = 0.5) +
+      geom_line(aes(group = 1), size = 0.5, alpha = .5) +
+      geom_point(aes(color = ifelse(v >= 0, "positive", "negative"))) +
+      geom_errorbar(aes(ymin = v - v_se, ymax = v + v_se), width = 0.1) +
+      scale_color_manual(values = c(positive = "deepskyblue", negative = "hotpink")) +
+      theme_minimal() +
+      labs(y = "Average achievement difference (SD units)", x = "School year", 
+           title = glue("Achievement Gap Estimates: {district}"),
+           caption = glue("Note: district included {data$n_schools} schools"),
+           subtitle = "Negative values (pink) indicate White students have higher average achievement \n Positive values (blue) indicate Hispanic/Latino students have higher average achievement"
+    ) +
+      theme(legend.position = "none")
+    ))
+
+# Method 2: lapply
+plot_data_split <- split(plot_data, plot_data$district)
+lapply_plots <- lapply(plot_data_split, function(x) {
+    ggplot(x, aes(x = academic_year, y = v)) +
+      geom_hline(yintercept = 0, color = "red", size = 0.5) +
+      geom_line(aes(group = 1), size = 0.5, alpha = .5) +
+      geom_point(aes(color = ifelse(v >= 0, "positive", "negative"))) +
+      geom_errorbar(aes(ymin = v - v_se, ymax = v + v_se), width = 0.1) +
+      scale_color_manual(values = c(positive = "deepskyblue", negative = "hotpink")) +
+      theme_minimal() +
+      labs(y = "Average achievement difference (SD units)", x = "School year", 
+           title = glue("Achievement Gap Estimates: {x$district}"),
+           caption = glue("Note: district included {x$n_schools} schools"),
+           subtitle = "Negative values (pink) indicate White students have higher average achievement \n Positive values (blue) indicate Hispanic/Latino students have higher average achievement"
+    ) +
+      theme(legend.position = "none")
+})
+
+# Method 3: Map
+map_plots <- plot_data %>% 
+  group_by(district) %>% 
+  nest() %>% 
+    mutate(
+    plots = pmap(list(district, data),
+    ~ggplot(..2, aes(x = academic_year, y = v)) +
+      geom_hline(yintercept = 0, color = "red", size = 0.5) +
+      geom_line(aes(group = 1), size = 0.5, alpha = .5) +
+      geom_point(aes(color = ifelse(v >= 0, "positive", "negative"))) +
+      geom_errorbar(aes(ymin = v - v_se, ymax = v + v_se), width = 0.1) +
+      scale_color_manual(values = c(positive = "deepskyblue", negative = "hotpink")) +
+      theme_minimal() +
+      theme(legend.position = "none") +
+      labs(y = "Average achievement difference (SD units)", x = "School year", 
+           title = glue("Achievement Gap Estimates: {..1}"),
+           caption = glue("Note: district included {..2$n_schools} schools"),
+           subtitle = "Negative values (pink) indicate White students have higher average achievement \n Positive values (blue) indicate Hispanic/Latino students have higher average achievement"
+    )))
 ```
 
-### 4. Save the plots into a “plots” directory. Make sure the file names are meaningful.
+### Example Plot
+```{r}
+plots$plot[[58]]
+```
+
+## 4. Save the plots into a “plots” directory. Make sure the file names are meaningful.
+
+```{r}
+fs::dir_create(here::here("plots", "districts"))
+files <- str_replace_all(
+  tolower(plots$district),
+  " ",
+  "-"
+)
+paths <- here::here("plots", "districts", glue("{files}.png"))
+head(paths)
+
+walk2(plots$plot, paths, ~ggsave(.y, .x))
+```
 
 # Extra Credit
 ## From question B.3. above, create a third set of plots that puts together each of the pairs of plots from the two methods to confirm that the plots were produced identically by both methods.
+
+```{r}
+plots1 <- plots$plot
+plots2 <- lapply_plots
+plots3 <- map_plots$plots
+
+library(patchwork)
+
+extra <- pmap(list(plots1, plots2, plots3), ~(..1 + ..2 + ..3))
+
+extra[[58]]
+```
