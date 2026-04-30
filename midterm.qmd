@@ -20,26 +20,50 @@ library(rio)
 library(tidyverse)
 library(purrr)
 library(dplyr)
+library(janitor)
+library(gapr)
 ```
 
 # Part A: Data
-## Import
+## 1.
+
+## Use the function above to download all of the data from the 2014-15 to 2017-18 school years and bind it into a single data frame, using a single function (i.e., one line of code). Note, this may take a minute or two to run, depending on your Internet speed.
+
 ```{r}
 download_file <- function(year) {
   link <- glue::glue("https://www.oregon.gov/ode/educator-resources/assessment/TestResults20{year}/pagr_schools_ela_raceethnicity_{year-1}{year}.xlsx")
   rio::import(link, setclass = "tibble", na = c("-", "--", "*"))
 }
+
+df <- map_dfr(15:18, ~download_file(.x)) %>% clean_names()
 ```
 
-## Cleaning
+## Conduct some basic data cleaning to make your data file look like the following.
+
 ```{r}
+df1 <- df %>% 
+  filter(student_group %in% c("White", "Hispanic/Latino")) %>% 
+  select(1:8, starts_with("number_level")) %>% 
+  select(-district_id, -school_id, -subject) %>% 
+  drop_na(starts_with("number_level")) %>% 
+  pivot_longer(cols = starts_with("number_level"), names_to = "level", values_to = "n") %>% 
+  mutate(level = parse_number(level)) %>% 
+```
+
+## 2. Sum the n across grades and school for each district within each academic year, student group, and level. Calculate the number of schools (unique schools listed) for each district. Also move your data to a wider format where the student groups become new columns, filled by the district n. Remove districts that did not report numbers for one or both student groups (i.e., drop missing data from the new columns). Your data frame should look like the below
+
+```{r}
+df2 <- df1 %>% 
+  group_by(district, academic_year, student_group, level) %>% 
+  summarize(n = (sum(n)), n_schools = length(unique(school)), .groups = "drop") %>% 
+  pivot_wider(names_from = student_group, values_from = n) %>% 
+  clean_names()
 ```
 
 # Part B: Achievement Disparities
 ```{r}
+remotes::install_github("datalorax/gapr")
 library(gapr)
-d[1:4, ] |> # data source - just first four rows for first district
-  estimate_v("white", "hispanic_latino") # columns for reference/focal groups
 ```
 
 ## 1. Estimate the average achievement differences in terms of an effect size for every school district in the state that reported data on both student groups (i.e., using the data we created above), for each academic year. Conduct this analysis twice, once using group_by() |> nest() and map() and once using nest_by() |> summarize().
