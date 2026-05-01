@@ -5,11 +5,10 @@ format:
   html:
     toc: true
     embed-resources: true
-    theme: cerulean
+    theme: lumen
     code-fold: true
 execute:
   eval: true
-  echo: false
 warning: false
 message: false
 cache: true
@@ -23,7 +22,7 @@ library(tidyverse)
 library(purrr)
 library(dplyr)
 library(janitor)
-library(gapr)
+library(patchwork)
 ```
 
 # Part A: Data
@@ -50,6 +49,7 @@ df1 <- df %>%
   drop_na(starts_with("number_level")) %>% 
   pivot_longer(cols = starts_with("number_level"), names_to = "level", values_to = "n") %>% 
   mutate(level = parse_number(level))
+head(df1)
 ```
 
 ## 2. 
@@ -63,6 +63,7 @@ df2 <- df1 %>%
   pivot_wider(names_from = student_group, values_from = n) %>% 
   clean_names() %>% 
   drop_na(white, hispanic_latino)
+head(df2)
 ```
 #### Note: I received a error in part B1 that was fixed by dropping NAs from the white and hispanic_latino columns. 
 
@@ -75,6 +76,7 @@ library(gapr)
 ## 1. 
 ### Estimate the average achievement differences in terms of an effect size for every school district in the state that reported data on both student groups (i.e., using the data we created above), for each academic year. Conduct this analysis twice, once using group_by() |> nest() and map() and once using nest_by() |> summarize().
 
+#### Approach 1
 ```{r}
 b1a <- df2 %>% 
   group_by(district, academic_year) %>% 
@@ -83,7 +85,10 @@ b1a <- df2 %>%
   unnest(effect_size) 
 
 head(b1a)
+```
 
+#### Approach 2
+```{r}
 b1b <- df2 %>% 
   nest_by(district, academic_year) %>% 
   summarize(effect_size = estimate_v(data, "white", "hispanic_latino")) %>% 
@@ -221,8 +226,6 @@ plots2 <- map(lapply_plots, ~.x + theme(plot.title = element_blank(), plot.subti
 plots3 <- map(map_plots$plots, ~.x + theme(plot.title = element_blank(), plot.subtitle = element_blank()))
 
 # removed plot titles to improve combined plot readability
-
-library(patchwork)
 
 extra <- pmap(list(plots1, plots2, plots3), ~(..1 + ..2 + ..3))
 
